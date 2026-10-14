@@ -121,6 +121,10 @@ const Path CATEGORIES_FILE_NAME {u"categories.json"_s};
 const Path ADDITIONAL_TRACKERS_FROM_URL_FILE_NAME {u"additional_trackers_from_url.txt"_s};
 const int MAX_PROCESSING_RESUMEDATA_COUNT = 50;
 const std::chrono::seconds FREEDISKSPACE_CHECK_TIMEOUT = 30s;
+// How long a blocked peer stays in the list after it was last reported
+const qint64 SEEN_PEER_EXPIRY_SECS = 7 * 24 * 60 * 60;  // 7 days
+// Safety cap per torrent so a huge swarm can't eat unlimited memory
+const qsizetype SEEN_PEER_MAX_PER_TORRENT = 50000;
 
 namespace
 {
@@ -582,6 +586,7 @@ SessionImpl::SessionImpl(QObject *parent)
     , m_torrentContentRemoveOption {BITTORRENT_SESSION_KEY(u"TorrentContentRemoveOption"_s), TorrentContentRemoveOption::Delete}
     , m_startPaused {BITTORRENT_SESSION_KEY(u"StartPaused"_s)}
     , m_seedingLimitTimer {new QTimer(this)}
+    , m_seenPeersPruneTimer {new QTimer(this)}
     , m_resumeDataTimer {new QTimer(this)}
     , m_ioThread {new QThread}
     , m_asyncWorker {new QThreadPool(this)}
@@ -608,6 +613,10 @@ SessionImpl::SessionImpl(QObject *parent)
     m_recentErroredTorrentsTimer->setInterval(1s);
     connect(m_recentErroredTorrentsTimer, &QTimer::timeout
         , this, [this]() { m_recentErroredTorrents.clear(); });
+
+    m_seenPeersPruneTimer->setInterval(10min);
+    connect(m_seenPeersPruneTimer, &QTimer::timeout, this, &SessionImpl::pruneSeenPeers);
+    m_seenPeersPruneTimer->start();
 
     m_seedingLimitTimer->setInterval(10s);
     connect(m_seedingLimitTimer, &QTimer::timeout, this, [this]
@@ -6096,7 +6105,76 @@ void SessionImpl::handlePeerBlockedAlert(const lt::peer_blocked_alert *alert)
 
     const QString ip {toString(alert->endpoint.address())};
     if (!ip.isEmpty())
+    {
         Logger::instance()->addPeer(ip, true, reason);
+
+        // Incoming connections can be blocked before libtorrent knows which torrent
+        // they want; those have no valid handle and only go to the log.
+        if (alert->handle.is_valid())
+        {
+            if (const TorrentImpl *torrent = getTorrent(alert->handle))
+                recordBlockedPeer(torrent->id(), ip, alert->endpoint.port(), reason);
+        }
+    }
+}
+
+void SessionImpl::recordBlockedPeer(const TorrentID &id, const QString &ip, const quint16 port, const QString &reason)
+{
+    // Counted per IP: the port is often 0 or random for blocked peers
+    const QString &key = ip;
+
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    QHash<QString, SeenPeer> &peers = m_seenPeers[id];
+    auto iter = peers.find(key);
+    if (iter == peers.end())
+    {
+        if (peers.size() >= SEEN_PEER_MAX_PER_TORRENT)
+            return;
+        iter = peers.insert(key, SeenPeer {.ip = ip, .port = port
+            , .reason = reason, .firstSeen = now, .lastSeen = now, .hits = 0});
+    }
+
+    iter->lastSeen = now;
+    ++iter->hits;
+    if (port != 0)
+        iter->port = port;
+    if (!reason.isEmpty())
+        iter->reason = reason;
+}
+
+void SessionImpl::pruneSeenPeers()
+{
+    const QDateTime cutoff = QDateTime::currentDateTimeUtc().addSecs(-SEEN_PEER_EXPIRY_SECS);
+    for (auto torrentIter = m_seenPeers.begin(); torrentIter != m_seenPeers.end();)
+    {
+        if (!m_torrents.contains(torrentIter.key()))
+        {
+            torrentIter = m_seenPeers.erase(torrentIter);
+            continue;
+        }
+
+        QHash<QString, SeenPeer> &peers = torrentIter.value();
+        Algorithm::removeIf(peers, [&cutoff](const QString &, const SeenPeer &peer) { return peer.lastSeen < cutoff; });
+
+        if (peers.isEmpty())
+            torrentIter = m_seenPeers.erase(torrentIter);
+        else
+            ++torrentIter;
+    }
+}
+
+QList<SeenPeer> SessionImpl::seenPeers(const TorrentID &id) const
+{
+    return m_seenPeers.value(id).values();
+}
+
+int SessionImpl::blockedPeersCount(const TorrentID &id) const
+{
+    const auto iter = m_seenPeers.constFind(id);
+    if (iter == m_seenPeers.cend())
+        return 0;
+
+    return static_cast<int>(iter.value().size());
 }
 
 void SessionImpl::handlePeerBanAlert(const lt::peer_ban_alert *alert)

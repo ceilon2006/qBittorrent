@@ -384,7 +384,14 @@ QString TransferListModel::displayValue(const BitTorrent::Torrent *torrent, cons
     case TR_SEEDS:
         return amountString(torrent->seedsCount(), torrent->totalSeedsCount());
     case TR_PEERS:
-        return amountString(torrent->leechsCount(), torrent->totalLeechersCount());
+    {
+        // Like uTorrent: also count peers that were refused by the IP filter
+        const int blocked = BitTorrent::Session::instance()->blockedPeersCount(torrent->id());
+        if (blocked == 0)
+            return amountString(torrent->leechsCount(), torrent->totalLeechersCount());
+        return tr("%1 (%2) [%3 blocked]", "Peers column: connected (in swarm) [refused by IP filter]")
+            .arg(QString::number(torrent->leechsCount()), QString::number(torrent->totalLeechersCount()), QString::number(blocked));
+    }
     case TR_DLSPEED:
         return unitString(torrent->downloadPayloadRate(), true);
     case TR_UPSPEED:

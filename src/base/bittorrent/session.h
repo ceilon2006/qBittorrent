@@ -37,6 +37,7 @@
 #include "addtorrenterror.h"
 #include "addtorrentparams.h"
 #include "categoryoptions.h"
+#include "seenpeer.h"
 #include "sharelimits.h"
 #include "torrentcontentremoveoption.h"
 #include "trackerentry.h"
@@ -463,6 +464,9 @@ namespace BitTorrent
         virtual Torrent *getTorrent(const TorrentID &id) const = 0;
         virtual Torrent *findTorrent(const InfoHash &infoHash) const = 0;
         virtual QList<Torrent *> torrents() const = 0;
+        // Peers blocked by IP filter etc. for this torrent (kept for a long time)
+        virtual QList<SeenPeer> seenPeers(const TorrentID &id) const = 0;
+        virtual int blockedPeersCount(const TorrentID &id) const = 0;
         virtual qsizetype torrentsCount() const = 0;
         virtual const SessionStatus &status() const = 0;
         virtual const CacheStatus &cacheStatus() const = 0;

@@ -437,6 +437,8 @@ namespace BitTorrent
         Torrent *getTorrent(const TorrentID &id) const override;
         Torrent *findTorrent(const InfoHash &infoHash) const override;
         QList<Torrent *> torrents() const override;
+        QList<SeenPeer> seenPeers(const TorrentID &id) const override;
+        int blockedPeersCount(const TorrentID &id) const override;
         qsizetype torrentsCount() const override;
         const SessionStatus &status() const override;
         const CacheStatus &cacheStatus() const override;
@@ -593,6 +595,8 @@ namespace BitTorrent
         void handlePortmapAlert(const lt::portmap_alert *alert);
         void handlePeerBlockedAlert(const lt::peer_blocked_alert *alert);
         void handlePeerBanAlert(const lt::peer_ban_alert *alert);
+        void recordBlockedPeer(const TorrentID &id, const QString &ip, quint16 port, const QString &reason);
+        void pruneSeenPeers();
         void handleUrlSeedAlert(const lt::url_seed_alert *alert);
         void handleListenSucceededAlert(const lt::listen_succeeded_alert *alert);
         void handleListenFailedAlert(const lt::listen_failed_alert *alert);
@@ -816,6 +820,9 @@ namespace BitTorrent
         bool m_needSaveTorrentsQueue = false;
         bool m_refreshEnqueued = false;
         QTimer *m_seedingLimitTimer = nullptr;
+        QTimer *m_seenPeersPruneTimer = nullptr;
+        // torrent ID -> (IP -> blocked peer)
+        QHash<TorrentID, QHash<QString, SeenPeer>> m_seenPeers;
         QTimer *m_resumeDataTimer = nullptr;
         // IP filtering
         QPointer<FilterParserThread> m_filterParser;

@@ -61,6 +61,7 @@
 #include "interfaces/iguiapplication.h"
 #include "mainwindow.h"
 #include "optionsdialog.h"
+#include "peerlistdialog.h"
 #include "previewselectdialog.h"
 #include "speedlimitdialog.h"
 #include "torrentcategorydialog.h"
@@ -560,6 +561,16 @@ void TransferListWidget::copySelectedIDs() const
     qApp->clipboard()->setText(torrentIDs.join(u'\n'));
 }
 
+void TransferListWidget::showPeerListDialog()
+{
+    const QList<BitTorrent::Torrent *> torrents = getSelectedTorrents();
+    if (torrents.size() != 1)
+        return;
+
+    auto *dialog = new PeerListDialog(torrents.first(), this);
+    dialog->open();
+}
+
 void TransferListWidget::copySelectedComments() const
 {
     QStringList torrentComments;
@@ -1001,6 +1012,8 @@ void TransferListWidget::displayListMenu()
     connect(actionSetTorrentPath, &QAction::triggered, this, &TransferListWidget::setSelectedTorrentsLocation);
     auto *actionForceRecheck = new QAction(UIThemeManager::instance()->getIcon(u"force-recheck"_s, u"document-edit-verify"_s), tr("Force rec&heck"), listMenu);
     connect(actionForceRecheck, &QAction::triggered, this, &TransferListWidget::recheckSelectedTorrents);
+    auto *actionGetPeerList = new QAction(UIThemeManager::instance()->getIcon(u"peers"_s, u"network-workgroup"_s), tr("&Get peer list"), listMenu);
+    connect(actionGetPeerList, &QAction::triggered, this, &TransferListWidget::showPeerListDialog);
     auto *actionForceReannounce = new QAction(UIThemeManager::instance()->getIcon(u"reannounce"_s, u"document-edit-verify"_s), tr("Force r&eannounce"), listMenu);
     connect(actionForceReannounce, &QAction::triggered, this, &TransferListWidget::reannounceSelectedTorrents);
     auto *actionCopyMagnetLink = new QAction(UIThemeManager::instance()->getIcon(u"torrent-magnet"_s, u"kt-magnet"_s), tr("&Magnet link"), listMenu);
@@ -1277,6 +1290,8 @@ void TransferListWidget::displayListMenu()
     actionForceReannounce->setEnabled(oneCanForceReannounce);
     if (!oneCanForceReannounce)
         actionForceReannounce->setToolTip(tr("Can not force reannounce if torrent is Stopped/Queued/Errored/Checking"));
+    listMenu->addAction(actionGetPeerList);
+    actionGetPeerList->setEnabled(selectedIndexes.size() == 1);
     listMenu->addSeparator();
     listMenu->addAction(actionOpenDestinationFolder);
     if (BitTorrent::Session::instance()->isQueueingSystemEnabled() && oneNotFinished)

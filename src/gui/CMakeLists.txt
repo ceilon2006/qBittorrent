@@ -73,6 +73,7 @@ add_library(qbt_gui STATIC
     powermanagement/inhibitor.h
     powermanagement/powermanagement.h
     previewlistdelegate.h
+    peerlistdialog.h
     previewselectdialog.h
     progressbarpainter.h
     properties/downloadedpiecesbar.h
@@ -176,6 +177,7 @@ add_library(qbt_gui STATIC
     powermanagement/inhibitor.cpp
     powermanagement/powermanagement.cpp
     previewlistdelegate.cpp
+    peerlistdialog.cpp
     previewselectdialog.cpp
     progressbarpainter.cpp
     properties/downloadedpiecesbar.cpp

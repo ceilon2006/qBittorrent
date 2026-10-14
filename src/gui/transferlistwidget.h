@@ -88,6 +88,7 @@ public slots:
     void copyContentPaths() const;
     void copySelectedInfohashes(CopyInfohashPolicy policy) const;
     void copySelectedIDs() const;
+    void showPeerListDialog();
     void copySelectedComments() const;
     void openSelectedTorrentsFolder();
     void openDestinationFolder(const BitTorrent::Torrent *torrent);
