@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peer List Patch</title>
+<style>
+:root {
+	--bg: #fbfaf7;
+	--surface: #ffffff;
+	--surface-2: #f3f1ec;
+	--text: #1d1d1b;
+	--muted: #5f5d57;
+	--border: #e2dfd7;
+	--accent: #2f5d8a;
+	--accent-soft: #e6eef6;
+	--code-bg: #f1efe9;
+	--ok: #2e7d4f;
+	--warn: #9a5b00;
+	--bad: #a3342b;
+	--grey: #7c7a73;
+	--self: #6b5a9e;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #161615;
+		--surface: #1f1f1d;
+		--surface-2: #262624;
+		--text: #ecebe6;
+		--muted: #a8a69f;
+		--border: #3a3936;
+		--accent: #8db6e0;
+		--accent-soft: #23303d;
+		--code-bg: #2a2a27;
+		--ok: #6cc28f;
+		--warn: #e0a64a;
+		--bad: #ec8a80;
+		--grey: #9b9991;
+		--self: #b4a5e6;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #161615;
+	--surface: #1f1f1d;
+	--surface-2: #262624;
+	--text: #ecebe6;
+	--muted: #a8a69f;
+	--border: #3a3936;
+	--accent: #8db6e0;
+	--accent-soft: #23303d;
+	--code-bg: #2a2a27;
+	--ok: #6cc28f;
+	--warn: #e0a64a;
+	--bad: #ec8a80;
+	--grey: #9b9991;
+	--self: #b4a5e6;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+.wrap { max-width: 960px; margin: 0 auto; padding: 32px 16px 80px; }
+header.mast { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 28px; }
+.eyebrow { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+h1 { font-size: 30px; line-height: 1.2; margin: 6px 0 10px; }
+h2 { font-size: 22px; margin: 44px 0 12px; padding-top: 8px; border-top: 1px solid var(--border); }
+h3 { font-size: 17px; margin: 26px 0 8px; }
+p { margin: 10px 0; }
+.lede { color: var(--muted); font-size: 17px; }
+.meta { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; }
+a { color: var(--accent); }
+code, .mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: .9em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+nav.toc { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; margin: 20px 0 8px; }
+nav.toc ol { margin: 6px 0 0; padding-left: 22px; columns: 2; column-gap: 32px; }
+nav.toc li { margin: 2px 0; break-inside: avoid; }
+@media (max-width: 640px) { nav.toc ol { columns: 1; } }
+.table-wrap { overflow-x: auto; margin: 12px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+.note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 14px 0; }
+.note.warn { border-left-color: var(--warn); }
+.pill { display: inline-block; font-size: 12.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.s-conn { color: var(--ok); }
+.s-not { color: var(--muted); }
+.s-block { color: var(--bad); }
+.s-unr { color: var(--warn); }
+.s-self { color: var(--self); }
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 14px 0; }
+.flow .box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.flow .box h4 { margin: 0 0 6px; font-size: 14.5px; }
+.flow .box p { margin: 0; font-size: 14px; color: var(--muted); }
+.flow .box .tag { font-size: 12px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+ul, ol { padding-left: 22px; }
+li { margin: 4px 0; }
+.mock { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; overflow-x: auto; white-space: pre; }
+footer { margin-top: 48px; color: var(--muted); font-size: 13.5px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="mast">
+	<div class="eyebrow">qBittorrent 5.2.4 · peer-list fork</div>
+	<h1>Peer list patch</h1>
+	<p class="lede">What this fork adds to standard qBittorrent, how the peer list is collected, what every state means, and where the limits are.</p>
+	<div class="meta">
+		<span>Branch <code>peer-list-5.2.4</code></span>
+		<span>Repository <code>github.com/ceilon2006/qBittorrent</code></span>
+		<span>Base: upstream tag <code>release-5.2.4</code></span>
+		<span>Written 2026-10-16</span>
+	</div>
+</header>
+
+<div class="note">
+	<strong>Commits.</strong> <code>50ce1610d</code> first peer list dialog; <code>0a1cebbe2</code> all known peers, filters, reannounce on filter change;
+	then the commit that adds the <em>Unreachable</em> and <em>This machine</em> states, the two extra block reasons, the connect alerts and this document.
+</div>
+
+<nav class="toc" aria-label="Contents">
+	<strong>Contents</strong>
+	<ol>
+		<li><a href="#summary">Changes at a glance</a></li>
+		<li><a href="#dialog">The Get peer list dialog</a></li>
+		<li><a href="#collect">How peers are collected</a></li>
+		<li><a href="#states">Peer states</a></li>
+		<li><a href="#blocked">Blocked: all eight reasons</a></li>
+		<li><a href="#unreachable">Unreachable: when and why</a></li>
+		<li><a href="#self">This machine</a></li>
+		<li><a href="#lifetime">How long a peer stays listed</a></li>
+		<li><a href="#filter">IP filter changes and reannounce</a></li>
+		<li><a href="#formats">Filter file formats and IPv6</a></li>
+		<li><a href="#behaviour">Behaviour worth knowing</a></li>
+		<li><a href="#cost">Performance cost</a></li>
+		<li><a href="#tech">Technical reference</a></li>
+		<li><a href="#build">Building and running</a></li>
+		<li><a href="#tests">What was tested</a></li>
+	</ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="summary">1. Changes at a glance</h2>
+
+<div class="table-wrap"><table>
+	<tr><th>Area</th><th>Standard qBittorrent 5.2.4</th><th>This fork</th></tr>
+	<tr><td>Torrent right-click menu</td><td>No peer list action</td><td><strong>Get peer list</strong>, under <em>Force reannounce</em>; enabled when exactly one torrent is selected</td></tr>
+	<tr><td>Peers column</td><td><code>connected (in swarm)</code></td><td>Adds <code>[N blocked]</code> when peers of that torrent were refused, e.g. <code>12 (40) [5 blocked]</code></td></tr>
+	<tr><td>Which peers you can see</td><td>Peers tab: only peers you are connected to right now</td><td>Every peer libtorrent was told about (tracker, DHT, PeX, LSD), connected or not, allowed or refused, kept for up to 7 days</td></tr>
+	<tr><td>Refused peers</td><td>Only in the peer log (<em>View → Log → Blocked IPs</em>), not per torrent</td><td>Per torrent, with reason, first/last seen and how often they were reported</td></tr>
+	<tr><td>Failed connections</td><td>Not shown anywhere</td><td>Shown as <em>Unreachable</em> with libtorrent's error</td></tr>
+	<tr><td>Block reason texts</td><td>6 of libtorrent's 8 reasons named; <code>invalid_local_interface</code> and <code>ssrf_mitigation</code> are empty</td><td>All 8 named</td></tr>
+	<tr><td>Changing the IP filter</td><td>New filter applied; peers it now allows are not found again until the next normal announce (often 30 min or more)</td><td>Running torrents reannounce at once (ignoring the tracker's minimum interval) and the peer list is re-checked against the new filter</td></tr>
+	<tr><td>libtorrent alerts</td><td>Connect alerts off</td><td><code>connect_notification</code> on, for connection results</td></tr>
+</table></div>
+
+<p>Nothing else in qBittorrent changes. The patch does not block, allow, slow or prioritise any peer: who gets refused is decided only by libtorrent, your IP filter and your settings. The dialog only reads.</p>
+
+<!-- ============================================================ -->
+<h2 id="dialog">2. The Get peer list dialog</h2>
+
+<p>Right-click one torrent in the main list → <strong>Get peer list</strong>. The dialog shows a snapshot; it does not update by itself. Click <strong>Refresh</strong> to read the current state.</p>
+
+<div class="mock">120 of 240 peers shown: 6 connected, 70 not connected (not tried yet), 9 blocked, 33 unreachable (connecting failed), 1 this machine. …
+┌───────────────┬───────┬─────────────────┬──────────┬────────┬───┬──────┬────┬──────────────────────┬────────────┬───────────┬───────┐
+│ IP            │ Port  │ Status          │ Source   │ Client │ % │ Down │ Up │ Flags / Reason       │ First seen │ Last seen │ Times │
+└───────────────┴───────┴─────────────────┴──────────┴────────┴───┴──────┴────┴──────────────────────┴────────────┴───────────┴───────┘
+☑ IPv4  ☑ IPv6   Seen in the last: [7 days ▾]        [Refresh] [Copy all] [Copy IP:port] [Close]</div>
+
+<h3>Columns</h3>
+<div class="table-wrap"><table>
+	<tr><th>Column</th><th>Meaning</th></tr>
+	<tr><td>IP, Port</td><td>The address libtorrent was given. For incoming connections, the port the peer connected <em>from</em>.</td></tr>
+	<tr><td>Status</td><td>See <a href="#states">Peer states</a>.</td></tr>
+	<tr><td>Source</td><td>Every source that ever reported this address: Tracker, DHT, PeX, LSD, Resume data, Incoming. A peer can have several.</td></tr>
+	<tr><td>Client, Progress %, Down, Up</td><td>Live values, only for connected peers (same data as the standard Peers tab).</td></tr>
+	<tr><td>Flags / Reason</td><td>For connected peers: qBittorrent's usual peer flags (hover for the description). For refused peers: the reason. For unreachable peers: the connection error.</td></tr>
+	<tr><td>First seen, Last seen</td><td>When libtorrent was first and last told about this address (local time).</td></tr>
+	<tr><td>Times reported</td><td>How many times a tracker, DHT, PeX, … reported it. A high number means the peer stayed in the swarm.</td></tr>
+</table></div>
+
+<h3>Filters</h3>
+<ul>
+	<li><strong>IPv4 / IPv6</strong> hide or show rows of that address family. At least one stays checked: unchecking the last one checks it again.</li>
+	<li><strong>Seen in the last: 1 hour / 6 hours / 24 hours / 7 days</strong> hides peers whose <em>Last seen</em> is older. Connected peers are always shown, because they are active now.</li>
+	<li>Both choices are remembered (settings keys <code>PeerListDialog/ShowIPv4</code>, <code>PeerListDialog/ShowIPv6</code>, <code>PeerListDialog/SeenWithinHours</code>).</li>
+	<li>The summary line counts only the rows that are shown. Sorting by any column keeps the filter correct.</li>
+</ul>
+
+<h3>Buttons</h3>
+<div class="table-wrap"><table>
+	<tr><th>Button</th><th>What it does</th></tr>
+	<tr><td>Refresh</td><td>Reads the peer list and libtorrent's live connections again.</td></tr>
+	<tr><td>Copy all</td><td>Copies the shown rows with all columns, tab separated, header first, in the table's current sort order. Pastes into a spreadsheet one cell per column.</td></tr>
+	<tr><td>Copy IP:port</td><td>One <code>IP:port</code> per line, e.g. <code>178.126.135.42:61147</code>. IPv6 is written <code>[2a02::1]:51413</code>; a peer without a known port (port 0, I2P) is written as the address alone. Copies the selected shown rows, or all shown rows if nothing is selected.</td></tr>
+</table></div>
+<p>To copy only IPv4 addresses: uncheck <strong>IPv6</strong>, then <strong>Copy IP:port</strong>.</p>
+
+<!-- ============================================================ -->
+<h2 id="collect">3. How peers are collected</h2>
+
+<p>libtorrent's public API only lists peers you are <em>connected</em> to. It keeps its own list of other known peers internally, but does not hand it out (the old <code>get_full_peer_list</code> is deprecated and internal). The patch therefore collects peers itself, as libtorrent reports them, into a per-torrent store called the <strong>peer book</strong>.</p>
+
+<div class="flow">
+	<div class="box"><span class="tag">Source 1</span><h4>on_add_peer</h4><p>A libtorrent plugin hook, called every time a tracker, DHT, PeX, LSD or resume data reports a peer, including peers the IP filter refuses (flag <code>filtered</code>). qBittorrent's own torrent plugin (<code>NativeTorrentExtension</code>) now overrides it. Runs on libtorrent's network thread.</p></div>
+	<div class="box"><span class="tag">Source 2</span><h4>peer_blocked_alert</h4><p>Sent when libtorrent refuses a peer, with one of eight reasons. Adds the exact reason, and records refusals that never went through <code>on_add_peer</code>.</p></div>
+	<div class="box"><span class="tag">Source 3</span><h4>peer_connect / peer_disconnected</h4><p>Connection results. A failure while a connection is being set up marks the peer Unreachable; a successful outgoing connection clears that.</p></div>
+	<div class="box"><span class="tag">Source 4</span><h4>Live peer info</h4><p>When the dialog refreshes, it asks libtorrent for the connected peers (same as the Peers tab) and merges them by IP and port.</p></div>
+</div>
+
+<p>This is different from the separate <em>qt-libtorrent_peer_collector</em> tool, which sends its own HTTP/UDP announces to trackers to read their peer lists. The fork needs no extra announces: it uses what libtorrent's normal announces already deliver, so there is no additional tracker traffic.</p>
+
+<p>The peer book is shared between libtorrent's network thread (writing) and the GUI thread (reading), so every access takes a mutex. Entries are keyed by torrent and <code>IP|port</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="states">4. Peer states</h2>
+
+<p>Each row has exactly one state. When more than one could apply, the first one in this table wins.</p>
+
+<div class="table-wrap"><table>
+	<tr><th>Status</th><th>Meaning</th><th>Counted in <code>[N blocked]</code></th></tr>
+	<tr><td><span class="pill s-self">This machine</span></td><td>One of this computer's own addresses, reported back to it (see <a href="#self">This machine</a>). Shown grey, reason <code>own address</code>.</td><td>No</td></tr>
+	<tr><td><span class="pill s-block">Blocked</span></td><td>libtorrent refused the peer because of your IP filter or one of your settings (see <a href="#blocked">all eight reasons</a>). Shown grey.</td><td>Yes</td></tr>
+	<tr><td><span class="pill s-conn">Connected (BT / μTP …)</span><br><span class="pill s-conn">Connecting</span> <span class="pill s-conn">Handshake</span></td><td>A connection exists right now. <em>Connecting</em> and <em>Handshake</em> are connections still being set up.</td><td>No</td></tr>
+	<tr><td><span class="pill s-unr">Unreachable</span></td><td>libtorrent tried to connect and the attempt failed while being set up, or the address cannot be used from this machine (see <a href="#unreachable">Unreachable</a>).</td><td>No</td></tr>
+	<tr><td><span class="pill s-not">Not connected</span></td><td>Known and allowed, but no connection now and no failed attempt recorded. Mostly peers libtorrent has not tried yet; also peers that were connected and closed normally later, and peers libtorrent skipped because the same IP was already connected.</td><td>No</td></tr>
+</table></div>
+
+<p>Connected peers that no tracker, DHT or PeX reported, mostly incoming connections, appear only while connected. Their Source is shown as <em>Incoming</em> (or DHT/PeX/LSD when libtorrent knows it).</p>
+
+<!-- ============================================================ -->
+<h2 id="blocked">5. Blocked: all eight reasons</h2>
+
+<p><em>Blocked</em> does not only mean your filter. libtorrent reports a refusal for eight reasons; the Reason column says which.</p>
+
+<div class="table-wrap"><table>
+	<tr><th>libtorrent reason</th><th>Cause</th><th>Reason text</th><th>Shown as</th></tr>
+	<tr><td><code>ip_filter</code></td><td>Your IP filter file, IPs banned with <em>Ban peer permanently</em>, and libtorrent's own bans (see note)</td><td>IP filter</td><td>Blocked</td></tr>
+	<tr><td><code>port_filter</code></td><td>libtorrent's port filter (qBittorrent normally sets none)</td><td>filtered port (N)</td><td>Blocked</td></tr>
+	<tr><td><code>privileged_ports</code></td><td>Peer port below 1024 while <em>Advanced → Disallow connection to peers on privileged ports</em> is on</td><td>privileged port (N)</td><td>Blocked</td></tr>
+	<tr><td><code>utp_disabled</code></td><td>Peer offers only μTP, but <em>Options → Connection → Peer connection protocol</em> is TCP</td><td>μTP is disabled</td><td>Blocked</td></tr>
+	<tr><td><code>tcp_disabled</code></td><td>Peer offers only TCP, but the protocol is μTP</td><td>TCP is disabled</td><td>Blocked</td></tr>
+	<tr><td><code>i2p_mixed</code></td><td>I2P peer while I2P mixed mode is off</td><td>I2P mixed mode restrictions</td><td>Blocked</td></tr>
+	<tr><td><code>ssrf_mitigation</code></td><td>libtorrent's protection against being steered into connecting to services on your own machine or network</td><td>SSRF mitigation <em>(new)</em></td><td>Blocked</td></tr>
+	<tr><td><code>invalid_local_interface</code></td><td>No local network interface can reach the address</td><td>no local interface can reach this address <em>(new)</em></td><td><strong>Unreachable</strong></td></tr>
+</table></div>
+
+<div class="note">
+	<strong>libtorrent's own bans.</strong> With no filter loaded at all, a test run still showed IPv4 peers refused with reason <code>ip_filter</code>. These are libtorrent's automatic bans (for example of DHT snoopers that connect asking for decoy info-hashes). They appear as <em>Blocked — IP filter</em> although they are not in your filter file.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="unreachable">6. Unreachable: when and why</h2>
+
+<h3>A peer becomes Unreachable when</h3>
+<ol>
+	<li><strong>An outgoing connection fails while it is being set up.</strong> libtorrent reports a disconnect whose operation is <code>connect</code>, <code>sock_open</code>, <code>sock_bind</code> or <code>sock_bind_to_device</code>. The error and the socket type go into the Reason column:
+		<div class="table-wrap"><table>
+			<tr><th>Reason text</th><th>Usual cause</th></tr>
+			<tr><td><code>Connection timed out</code> / <code>timed out</code></td><td>The peer does not answer: offline, or a firewall or NAT silently drops the attempt</td></tr>
+			<tr><td><code>Connection refused</code></td><td>The machine answers, but nothing listens on that port</td></tr>
+			<tr><td><code>Network is unreachable</code> / <code>No route to host</code></td><td>No route to that address from your network</td></tr>
+			<tr><td><code>Operation not supported</code></td><td>This machine cannot use that address family, e.g. public IPv6 peers on a machine without a global IPv6 address</td></tr>
+		</table></div>
+		Example: <code>Operation not supported (μTP)</code>, <code>Connection timed out (TCP)</code>.
+	</li>
+	<li><strong>libtorrent refuses the connection with <code>invalid_local_interface</code></strong>: no local interface can reach the address.</li>
+</ol>
+
+<h3>It does not become Unreachable when</h3>
+<ul>
+	<li>the peer is already <em>Blocked</em> or <em>This machine</em>;</li>
+	<li>a connection was made and later closed (<code>End of file</code>, <code>Connection reset by peer</code>, <code>upload to upload connection</code>): that peer was reachable;</li>
+	<li>libtorrent has not tried the peer yet: that is <em>Not connected</em>.</li>
+</ul>
+
+<h3>It stops being Unreachable when</h3>
+<ul>
+	<li>an <strong>outgoing</strong> connection to it succeeds later;</li>
+	<li>you <strong>change the IP filter</strong>: it returns to <em>Not connected</em>, or becomes <em>Blocked</em> if the new filter refuses it;</li>
+	<li>it <strong>expires</strong> (7 days without a report) or qBittorrent <strong>restarts</strong>.</li>
+</ul>
+
+<h3>It stays Unreachable even when</h3>
+<ul>
+	<li>trackers or DHT report it again (on purpose: otherwise the state would flip on every report);</li>
+	<li>the peer <strong>connects to you</strong> (incoming). A peer behind NAT connects from a random source port, not the listening port the tracker reported, so the incoming connection cannot be matched to the stored row. The dialog then shows two rows: the stored one <em>Unreachable</em>, and a live <em>Connected, Source: Incoming</em> row while the connection lasts.</li>
+</ul>
+
+<p>libtorrent often tries <strong>μTP first</strong>. If that attempt fails, the row says so (<code>… (μTP)</code>) even when a later TCP attempt might work; a successful TCP connection clears it.</p>
+
+<!-- ============================================================ -->
+<h2 id="self">7. This machine</h2>
+
+<p>libtorrent sometimes hears about the computer it runs on:</p>
+<ul>
+	<li><strong>LSD</strong> (Local Peer Discovery) announces the torrent on the local network, including over IPv6 link-local, and the client picks up its own announcement. On the test VM this produced <code>fe80::fe7f:9046:74f4:ee36%ens33</code>, source LSD.</li>
+	<li><strong>Trackers</strong> often return the announcing client's own public address in the peer list.</li>
+</ul>
+<p>libtorrent refuses to connect to itself and marks such a report as filtered, even with no IP filter loaded. Without special handling it would appear as <em>Blocked — IP filter</em>, which is misleading.</p>
+<p>The patch keeps a list of this machine's addresses: every network interface address (IPv6 link-local included) plus the external IPv4 and IPv6 addresses qBittorrent has detected. It is refreshed every 10 minutes and whenever the external IP changes. IPv6 scope (<code>%ens33</code>) is ignored when comparing, and IPv4-mapped IPv6 is treated as IPv4. Matching rows show <span class="pill s-self">This machine</span>, are never counted as blocked, and are not touched by filter changes.</p>
+<p>Turning off LSD (<em>Options → BitTorrent → Enable Local Peer Discovery</em>) removes the LSD case entirely; LSD only finds peers on your own LAN.</p>
+
+<!-- ============================================================ -->
+<h2 id="lifetime">8. How long a peer stays listed</h2>
+
+<div class="table-wrap"><table>
+	<tr><th>Event</th><th>Effect</th></tr>
+	<tr><td>Reported again (tracker, DHT, PeX, LSD)</td><td><em>Last seen</em> is reset; the 7 days start over</td></tr>
+	<tr><td>Not reported for 7 days</td><td>Removed by the cleanup that runs every 10 minutes (<code>SEEN_PEER_EXPIRY_SECS</code>)</td></tr>
+	<tr><td>qBittorrent restarts</td><td>Everything is lost: the peer book is kept only in memory, never written to disk</td></tr>
+	<tr><td>Torrent removed</td><td>That torrent's entries are deleted</td></tr>
+	<tr><td>50,000 entries reached for one torrent</td><td>No new entries for that torrent; existing ones stay (<code>MAX_PEERS_PER_TORRENT</code>)</td></tr>
+	<tr><td>IP filter changed</td><td>Nothing is removed; states are re-checked (next section)</td></tr>
+	<tr><td>Incoming-only connected peers</td><td>Not stored; visible only while connected</td></tr>
+</table></div>
+
+<p><strong>Why 7 days.</strong> An active peer in a small swarm is reported again within one or two announce rounds (trackers usually every ~30 minutes). In a large swarm, trackers return only a random sample, so an active peer can go unreported for hours; a short limit would drop peers that are still there. For a view of the swarm right now, use <em>Seen in the last: 1 or 6 hours</em>; the 7 days serve as history.</p>
+<p><strong>Last seen ≠ last active.</strong> It is the last time your client heard of the peer. A recent value means it is almost certainly still in the swarm; an old one means it has probably left, but not certainly.</p>
+<p><strong>Saving to disk</strong> was considered and left out: after a restart the list refills from trackers and DHT within an announce round or two, automatic saving would need per-torrent files and re-matching at startup, and it would keep IP history on disk. A manual <em>Save…</em> button would be the simpler option if ever needed.</p>
+
+<!-- ============================================================ -->
+<h2 id="filter">9. IP filter changes and reannounce</h2>
+
+<h3>The problem in standard qBittorrent</h3>
+<ol>
+	<li>While a peer is refused, libtorrent does not keep it: it drops it from the torrent's peer list.</li>
+	<li>When you change the filter to allow such peers, libtorrent does not look for the peers it dropped.</li>
+	<li>They come back only with the next announce. <em>Force reannounce</em> does not help: qBittorrent calls it without libtorrent's <code>ignore_min_interval</code> flag, so the announce is held until the tracker's minimum interval (often 15–30 min) has passed.</li>
+	<li>Stopping and starting the torrent works, because a fresh start is not subject to the minimum interval.</li>
+</ol>
+
+<h3>What the fork does when the filter really changes</h3>
+<ol>
+	<li>The new filter's rules are compared with the previous ones. Nothing happens if they are identical (e.g. the reload button on an unchanged file), and nothing happens for the first filter at startup.</li>
+	<li>Every peer in the peer book is re-checked: peers the new filter refuses become <em>Blocked — IP filter</em>; all others lose any earlier refusal (filter, settings or Unreachable) and return to <em>Not connected</em>, so libtorrent's next attempt decides their state again. <em>This machine</em> rows are left alone.</li>
+	<li>Every running torrent (not stopped, not queued) reannounces to all trackers <strong>ignoring the minimum interval</strong> and announces to DHT.</li>
+	<li>The log shows <code>IP filter changed. Cleared the blocked peers list and reannounced running torrents. Torrents: N</code>. The wording is older than the re-check in step 2: nothing is cleared any more, the list is re-checked.</li>
+</ol>
+<p><em>Ban peer permanently</em> only adds a block and goes a different way in qBittorrent, so it does not trigger a reannounce.</p>
+<div class="note warn">Do not reload a changed filter many times in a row: each change makes every running torrent contact its trackers immediately, and some trackers penalise clients that ignore their minimum interval too often.</div>
+
+<!-- ============================================================ -->
+<h2 id="formats">10. Filter file formats and IPv6</h2>
+
+<p>qBittorrent picks the parser by file extension. IPv6 ranges work only in <code>.dat</code>:</p>
+<div class="table-wrap"><table>
+	<tr><th>File</th><th>Line</th><th>qBittorrent 5.2.4</th></tr>
+	<tr><td><code>.p2p</code></td><td><code>Blocked-2:::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff</code></td><td>malformed</td></tr>
+	<tr><td><code>.p2p</code></td><td><code>Blocked-2:0:0:0:0:0:0:0:0-ffff:…:ffff</code></td><td>malformed</td></tr>
+	<tr><td><code>.p2p</code></td><td><code>Blocked-3:[::]-[ffff:…:ffff]</code>, <code>all ipv6:::/0</code></td><td>malformed</td></tr>
+	<tr><td><code>.dat</code></td><td><code>::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff</code></td><td>applied</td></tr>
+	<tr><td><code>.dat</code></td><td><code>:: - ffff:…:ffff , 0 , all IPv6</code></td><td>applied</td></tr>
+</table></div>
+<p><strong>Why:</strong> a <code>.p2p</code> line is <code>label:start-end</code>, and qBittorrent ends the label at the <em>last</em> <code>:</code> so labels may contain colons. Every IPv6 address contains <code>:</code>, so the line is always cut in the wrong place. The <code>.p2p</code> (PeerGuardian) format is IPv4 by design.</p>
+<p><strong>Your filter generator</strong> (<code>qt-p2p_filter_generator</code>, commit <code>4fda24d</code>) has a <em>Block all IPv6 addresses (bare ranges only)</em> checkbox that appends the <code>.dat</code> line above. It is disabled while PeerGuardian labels are on. Save the output as <code>ipfilter.dat</code> without labels and load that in qBittorrent.</p>
+<p>A filter with only IPv4 ranges lets every IPv6 peer through. On a machine without global IPv6 those peers still cannot connect; they show as <em>Unreachable — Operation not supported</em>.</p>
+
+<!-- ============================================================ -->
+<h2 id="behaviour">11. Behaviour worth knowing</h2>
+<ul>
+	<li><strong>One peer, two rows (NAT).</strong> A peer behind NAT that connects to you appears as a live <em>Connected, Source: Incoming</em> row (random source port) next to its stored row (listening port, from the tracker). When the incoming connection closes, the live row disappears after the next Refresh. The stored row usually stays <em>Not connected</em>: libtorrent does not open a second connection to an IP it is already connected to (<code>allow_multiple_connections_per_ip</code> is off by default), and after a disconnect it waits before retrying old peers.</li>
+	<li><strong>Connections come and go.</strong> Normal BitTorrent behaviour: both sides seeding (<code>upload to upload connection</code>), connection limits, idle timeouts, peers leaving.</li>
+	<li><strong>Refused incoming connections without a torrent.</strong> When a blocked peer connects to you, libtorrent refuses it before it knows which torrent it wants. It goes to the peer log only, not to any torrent's list.</li>
+	<li><strong>Bans are separate.</strong> libtorrent's smart-ban of peers that send corrupt data is a different event and is not shown as Blocked.</li>
+	<li><strong>IP column sorts as text.</strong> IPv4 and IPv6 interleave (<code>2a02:…</code> sorts between <code>212.…</code> addresses); use the IPv4/IPv6 checkboxes instead.</li>
+	<li><strong>Snapshot.</strong> The dialog does not refresh on its own.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="cost">12. Performance cost</h2>
+<ul>
+	<li><strong>Connect alerts:</strong> one alert per connection opened and one per connection closed or failed. qBittorrent allows at most 30 new connection attempts per second (<code>ConnectionSpeed</code> default), so at most about 60 extra alerts per second, mostly right after a torrent starts. libtorrent's alert queue is set practically unlimited by qBittorrent (<code>alert_queue_size = INT_MAX / 2</code>), so nothing is dropped. A 90-second test run logged no dropped alerts.</li>
+	<li><strong>Per report or alert:</strong> one mutex lock and one hash lookup.</li>
+	<li><strong>Memory:</strong> at most 50,000 entries per torrent, a few MB.</li>
+	<li><strong>Network:</strong> no extra traffic, except the reannounce after a real IP filter change.</li>
+</ul>
+<p>Connection tracking is not configurable; the cost was judged too small to need a switch.</p>
+
+<!-- ============================================================ -->
+<h2 id="tech">13. Technical reference</h2>
+
+<h3>Files</h3>
+<div class="table-wrap"><table>
+	<tr><th>File</th><th>Change</th></tr>
+	<tr><td><code>src/base/bittorrent/seenpeer.h</code></td><td>New. <code>SeenPeer</code> record (ip, port, sources, isBlocked, isBlockedByIPFilter, isUnreachable, isSelf, blockReason, firstSeen, lastSeen, hits) and <code>PeerSource</code> bits matching <code>lt::peer_info::peer_source_flags</code>.</td></tr>
+	<tr><td><code>src/base/bittorrent/peerbook.h/.cpp</code></td><td>New. Thread-safe <code>PeerBook</code>: <code>addPeer</code>, <code>markRefused</code>, <code>markConnectFailed</code>, <code>markConnected</code>, <code>setLocalAddresses</code>, <code>applyIPFilter</code>, <code>prune</code>, <code>peers</code>, <code>blockedCount</code>. Keyed by <code>lt::torrent_handle</code> in a <code>std::map</code> (ordered by owner, so entries stay findable after the torrent is gone).</td></tr>
+	<tr><td><code>src/base/bittorrent/nativetorrentextension.h/.cpp</code></td><td>Overrides <code>on_add_peer</code>; removes the torrent from the peer book in its destructor.</td></tr>
+	<tr><td><code>src/base/bittorrent/nativesessionextension.h/.cpp</code></td><td>Takes the peer book and passes it to each torrent plugin.</td></tr>
+	<tr><td><code>src/base/bittorrent/session.h</code></td><td><code>seenPeers(id)</code>, <code>blockedPeersCount(id)</code>.</td></tr>
+	<tr><td><code>src/base/bittorrent/sessionimpl.h/.cpp</code></td><td>Owns the peer book; <code>applyIPFilter()</code> (all filter updates go through it, with change detection and reannounce); two new block reason texts; <code>handlePeerConnectAlert</code>, <code>handlePeerDisconnectedAlert</code>; <code>updatePeerBookLocalAddresses</code>; <code>connect_notification</code> added to the alert mask; prune timer every 10 minutes.</td></tr>
+	<tr><td><code>src/gui/peerlistdialog.h/.cpp</code></td><td>New. The dialog.</td></tr>
+	<tr><td><code>src/gui/transferlistwidget.h/.cpp</code></td><td><em>Get peer list</em> menu action.</td></tr>
+	<tr><td><code>src/gui/transferlistmodel.cpp</code></td><td><code>[N blocked]</code> in the Peers column.</td></tr>
+	<tr><td><code>src/base/CMakeLists.txt</code>, <code>src/gui/CMakeLists.txt</code></td><td>New files added to the build.</td></tr>
+</table></div>
+
+<h3>libtorrent settings changed</h3>
+<ul>
+	<li><code>alert_mask</code>: adds <code>connect_notification</code>.</li>
+	<li>No other settings change. Reannounce uses <code>torrent_handle::force_reannounce(0, -1, ignore_min_interval)</code> and <code>force_dht_announce()</code> only after a real filter change.</li>
+</ul>
+
+<h3>Constants</h3>
+<ul>
+	<li><code>SEEN_PEER_EXPIRY_SECS = 7 * 24 * 60 * 60</code> (sessionimpl.cpp)</li>
+	<li><code>MAX_PEERS_PER_TORRENT = 50000</code> (peerbook.cpp)</li>
+	<li>Prune and local-address refresh interval: 10 minutes</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="build">14. Building and running</h2>
+<p>On Kubuntu 26.04, besides the usual qBittorrent build dependencies, two packages were missing:</p>
+<pre><code>sudo apt install qt6-tools-dev qt6-base-private-dev</code></pre>
+<p>Build and run from the repository folder:</p>
+<pre><code>cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/qbittorrent</code></pre>
+<p>After code changes, <code>cmake --build build</code> is enough. Quit a running qBittorrent with <em>File → Exit</em> before starting the new build, otherwise the old instance keeps running. To test without touching your real settings and torrents: <code>./build/qbittorrent --profile="$HOME/qbt-test"</code>.</p>
+<p>Git remotes: <code>origin</code> = upstream qBittorrent (fetch new releases), <code>myrepo</code> = <code>git@github.com:ceilon2006/qBittorrent.git</code> (your branch).</p>
+
+<!-- ============================================================ -->
+<h2 id="tests">15. What was tested</h2>
+<div class="table-wrap"><table>
+	<tr><th>Test</th><th>Result</th></tr>
+	<tr><td>Standalone libtorrent 2.0.12 program with a plugin and a filter blocking half of IPv4, 90 s on a real torrent</td><td><code>on_add_peer</code> fires for tracker and DHT peers and for filtered ones (flag set); no peer on the wrong side of the filter</td></tr>
+	<tr><td>Same program, no filter, IPv6 listen sockets, hand-added public IPv6 peers</td><td>IPv6 attempts fail with <code>sock_bind: Operation not supported</code>; own <code>fe80::…%ens33</code> reported via LSD as filtered</td></tr>
+	<tr><td>Same program, 45 s, connection results</td><td>Failures arrive as disconnects with operation <code>connect</code> (timed out, refused, network unreachable) or <code>sock_bind</code>; successes as <code>peer_connect_alert</code></td></tr>
+	<tr><td>Peer book compiled into a test program, walked through every state change</td><td>This machine, Blocked, Unreachable and their clearing all behave as described above</td></tr>
+	<tr><td>qBittorrent filter parser with IPv6 lines in <code>.p2p</code> and <code>.dat</code></td><td>See the table in section 10</td></tr>
+	<tr><td>Patched qBittorrent, offscreen, throwaway profile, 90–100 s with a torrent</td><td>Runs and exits cleanly; no dropped alerts</td></tr>
+	<tr><td>The dialog itself</td><td>Checked by you in the GUI; not automated</td></tr>
+</table></div>
+
+<footer>
+	Describes branch <code>peer-list-5.2.4</code> as of 2026-10-16. Upstream qBittorrent is GPL licensed; if you share a build of this fork, its source must be shared too.
+</footer>
+
+</div>
+</body>
+</html>

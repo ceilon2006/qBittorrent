@@ -617,6 +617,7 @@ SessionImpl::SessionImpl(QObject *parent)
     m_seenPeersPruneTimer->setInterval(10min);
     connect(m_seenPeersPruneTimer, &QTimer::timeout, this, &SessionImpl::pruneSeenPeers);
     m_seenPeersPruneTimer->start();
+    updatePeerBookLocalAddresses();
 
     m_seedingLimitTimer->setInterval(10s);
     connect(m_seedingLimitTimer, &QTimer::timeout, this, [this]
@@ -1877,6 +1878,7 @@ lt::settings_pack SessionImpl::loadLTSettings() const
     lt::settings_pack settingsPack;
 
     const lt::alert_category_t alertMask = lt::alert::error_notification
+        | lt::alert::connect_notification  // outgoing connection results, for the peer list
         | lt::alert::file_progress_notification
         | lt::alert::ip_block_notification
         | lt::alert::peer_notification
@@ -5935,6 +5937,12 @@ void SessionImpl::handleAlert(lt::alert *alert)
         case lt::external_ip_alert::alert_type:
             handleExternalIPAlert(static_cast<const lt::external_ip_alert *>(alert));
             break;
+        case lt::peer_connect_alert::alert_type:
+            handlePeerConnectAlert(static_cast<const lt::peer_connect_alert *>(alert));
+            break;
+        case lt::peer_disconnected_alert::alert_type:
+            handlePeerDisconnectedAlert(static_cast<const lt::peer_disconnected_alert *>(alert));
+            break;
         case lt::alerts_dropped_alert::alert_type:
             handleAlertsDroppedAlert(static_cast<const lt::alerts_dropped_alert *>(alert));
             break;
@@ -6136,6 +6144,12 @@ void SessionImpl::handlePeerBlockedAlert(const lt::peer_blocked_alert *alert)
     case lt::peer_blocked_alert::tcp_disabled:
         reason = tr("%1 is disabled", "this peer was blocked. Reason: TCP is disabled.").arg(u"TCP"_s); // don't translate TCP
         break;
+    case lt::peer_blocked_alert::invalid_local_interface:
+        reason = tr("no local interface can reach this address", "this peer was blocked. Reason: no local interface can reach this address.");
+        break;
+    case lt::peer_blocked_alert::ssrf_mitigation:
+        reason = tr("SSRF mitigation", "this peer was blocked. Reason: SSRF mitigation.");
+        break;
     }
 
     const QString ip {toString(alert->endpoint.address())};
@@ -6145,14 +6159,85 @@ void SessionImpl::handlePeerBlockedAlert(const lt::peer_blocked_alert *alert)
 
         // Incoming connections can be blocked before libtorrent knows which torrent
         // they want; those have no valid handle and only go to the log.
+        // Not a refusal: this machine has no way to reach the address (e.g. no global IPv6)
+        const bool isUnreachable = (alert->reason == lt::peer_blocked_alert::invalid_local_interface);
         if (alert->handle.is_valid())
-            m_peerBook->markBlocked(alert->handle, alert->endpoint, reason);
+            m_peerBook->markRefused(alert->handle, alert->endpoint, reason, isUnreachable);
     }
 }
 
 void SessionImpl::pruneSeenPeers()
 {
     m_peerBook->prune(QDateTime::currentDateTimeUtc().addSecs(-SEEN_PEER_EXPIRY_SECS));
+    // Interfaces come and go (VPN, DHCP), so the list is refreshed with the pruning
+    updatePeerBookLocalAddresses();
+}
+
+void SessionImpl::updatePeerBookLocalAddresses()
+{
+    QSet<QString> addresses;
+    for (const QHostAddress &address : asConst(QNetworkInterface::allAddresses()))
+        addresses.insert(address.toString());
+    if (!m_lastExternalIPv4Address.isEmpty())
+        addresses.insert(m_lastExternalIPv4Address);
+    if (!m_lastExternalIPv6Address.isEmpty())
+        addresses.insert(m_lastExternalIPv6Address);
+
+    m_peerBook->setLocalAddresses(addresses);
+}
+
+void SessionImpl::handlePeerConnectAlert(const lt::peer_connect_alert *alert)
+{
+    if (alert->handle.is_valid() && (alert->direction == lt::peer_connect_alert::direction_t::out))
+        m_peerBook->markConnected(alert->handle, alert->endpoint);
+}
+
+void SessionImpl::handlePeerDisconnectedAlert(const lt::peer_disconnected_alert *alert)
+{
+    if (!alert->handle.is_valid())
+        return;
+
+    // Only failures while the connection was being set up; a peer that closes an
+    // established connection was reachable
+    switch (alert->op)
+    {
+    case lt::operation_t::connect:
+    case lt::operation_t::sock_open:
+    case lt::operation_t::sock_bind:
+    case lt::operation_t::sock_bind_to_device:
+        break;
+    default:
+        return;
+    }
+
+    // lt::socket_type_name() is not exported by every libtorrent build
+    QString socketType;
+    switch (alert->socket_type)
+    {
+    case lt::socket_type_t::tcp:
+    case lt::socket_type_t::tcp_ssl:
+        socketType = u"TCP"_s;
+        break;
+    case lt::socket_type_t::utp:
+    case lt::socket_type_t::utp_ssl:
+        socketType = C_UTP;
+        break;
+    case lt::socket_type_t::socks5:
+    case lt::socket_type_t::socks5_ssl:
+        socketType = u"SOCKS5"_s;
+        break;
+    case lt::socket_type_t::http:
+    case lt::socket_type_t::http_ssl:
+        socketType = u"HTTP"_s;
+        break;
+    case lt::socket_type_t::i2p:
+        socketType = u"I2P"_s;
+        break;
+    }
+
+    const QString error = QString::fromLocal8Bit(alert->error.message());
+    const QString reason = socketType.isEmpty() ? error : u"%1 (%2)"_s.arg(error, socketType);
+    m_peerBook->markConnectFailed(alert->handle, alert->endpoint, reason);
 }
 
 QList<SeenPeer> SessionImpl::seenPeers(const TorrentID &id) const
@@ -6233,6 +6318,9 @@ void SessionImpl::handleExternalIPAlert(const lt::external_ip_alert *alert)
             reannounceToAllTrackers();
         m_lastExternalIPv4Address = externalIP;
     }
+
+    // Trackers echo this machine back as a peer of its own torrents
+    updatePeerBookLocalAddresses();
 }
 
 void SessionImpl::handleSessionErrorAlert(const lt::session_error_alert *alert) const

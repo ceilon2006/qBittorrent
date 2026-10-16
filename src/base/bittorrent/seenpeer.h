@@ -34,7 +34,9 @@ namespace BitTorrent
         quint8 sources = 0;  // PeerSource bits, all sources that ever reported it
         bool isBlocked = false;
         bool isBlockedByIPFilter = false;
-        QString blockReason;
+        bool isUnreachable = false;  // connecting failed or cannot work (e.g. no global IPv6), not blocked
+        bool isSelf = false;  // one of this machine's own addresses (LSD, trackers echo it back)
+        QString blockReason;  // why it is blocked or unreachable
         QDateTime firstSeen;
         QDateTime lastSeen;
         int hits = 0;  // how many times libtorrent was told about it

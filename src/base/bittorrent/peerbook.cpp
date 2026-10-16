@@ -13,6 +13,7 @@
 #include <libtorrent/error_code.hpp>
 #include <libtorrent/ip_filter.hpp>
 
+#include <QHostAddress>
 #include <QMutexLocker>
 
 #include "base/algorithm.h"
@@ -26,6 +27,21 @@ namespace
     QString makeKey(const QString &ip, const quint16 port)
     {
         return ip + u'|' + QString::number(port);
+    }
+
+    // Comparable form of an address: no IPv6 scope, IPv4-mapped IPv6 as plain IPv4
+    QString normalizedAddress(const QString &ip)
+    {
+        QHostAddress address {ip};
+        if (address.isNull())
+            return ip;
+
+        address.setScopeId({});
+        bool isIPv4 = false;
+        const quint32 ipv4 = address.toIPv4Address(&isIPv4);
+        if (isIPv4)
+            return QHostAddress(ipv4).toString();
+        return address.toString();
     }
 }
 
@@ -48,9 +64,28 @@ SeenPeer *PeerBook::findOrInsert(TorrentPeers &torrentPeers, const QString &ip, 
         peer.ip = ip;
         peer.port = port;
         peer.firstSeen = now;
+        peer.isSelf = isLocalAddress(ip);
         iter = torrentPeers.peers.insert(key, peer);
     }
     return &iter.value();
+}
+
+SeenPeer *PeerBook::find(TorrentPeers &torrentPeers, const QString &ip, const quint16 port)
+{
+    const auto iter = torrentPeers.peers.find(makeKey(ip, port));
+    return (iter != torrentPeers.peers.end()) ? &iter.value() : nullptr;
+}
+
+bool PeerBook::isLocalAddress(const QString &ip) const
+{
+    return m_localAddresses.contains(normalizedAddress(ip));
+}
+
+void PeerBook::clearRefusal(TorrentPeers &torrentPeers, SeenPeer &peer)
+{
+    setBlocked(torrentPeers, peer, false);
+    peer.isUnreachable = false;
+    peer.blockReason.clear();
 }
 
 void PeerBook::setBlocked(TorrentPeers &torrentPeers, SeenPeer &peer, const bool blocked)
@@ -83,14 +118,19 @@ void PeerBook::addPeer(const lt::torrent_handle &torrent, const lt::tcp::endpoin
     peer->lastSeen = now;
     ++peer->hits;
 
+    // libtorrent refuses its own addresses too, that is not the filter at work
+    if (peer->isSelf)
+        return;
+
     if (isFiltered)
     {
-        if (!peer->isBlocked)
+        if (!peer->isBlockedByIPFilter)
         {
             setBlocked(torrentPeers, *peer, true);
+            peer->isBlockedByIPFilter = true;
+            peer->isUnreachable = false;
             peer->blockReason = m_ipFilterReason;
         }
-        peer->isBlockedByIPFilter = true;
     }
     else if (peer->isBlockedByIPFilter)
     {
@@ -99,7 +139,8 @@ void PeerBook::addPeer(const lt::torrent_handle &torrent, const lt::tcp::endpoin
     }
 }
 
-void PeerBook::markBlocked(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint, const QString &reason)
+void PeerBook::markRefused(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint
+    , const QString &reason, const bool isUnreachable)
 {
     const QString ip = QString::fromStdString(endpoint.address().to_string());
     const quint16 port = endpoint.port();
@@ -145,9 +186,83 @@ void PeerBook::markBlocked(const lt::torrent_handle &torrent, const lt::tcp::end
         peer->hits = 1;
     }
 
+    if (peer->isSelf)
+        return;
+
+    if (isUnreachable)
+    {
+        // A refusal by the filter or a setting says more than "cannot reach it"
+        if (peer->isBlocked)
+            return;
+        peer->isUnreachable = true;
+        peer->blockReason = reason;
+        return;
+    }
+
     setBlocked(torrentPeers, *peer, true);
+    peer->isUnreachable = false;
     peer->blockReason = reason;
     peer->isBlockedByIPFilter = (reason == m_ipFilterReason);
+}
+
+void PeerBook::markConnectFailed(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint, const QString &reason)
+{
+    const QString ip = QString::fromStdString(endpoint.address().to_string());
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+
+    const QMutexLocker locker {&m_mutex};
+    TorrentPeers &torrentPeers = m_torrents[torrent];
+    SeenPeer *peer = find(torrentPeers, ip, endpoint.port());
+    if (!peer)
+    {
+        // Tried, but never reported to on_add_peer (e.g. added by hand)
+        peer = findOrInsert(torrentPeers, ip, endpoint.port(), now);
+        if (!peer)
+            return;
+        peer->lastSeen = now;
+    }
+
+    if (peer->isSelf || peer->isBlocked)
+        return;
+
+    peer->isUnreachable = true;
+    peer->blockReason = reason;
+}
+
+void PeerBook::markConnected(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint)
+{
+    const QString ip = QString::fromStdString(endpoint.address().to_string());
+
+    const QMutexLocker locker {&m_mutex};
+    const auto torrentIter = m_torrents.find(torrent);
+    if (torrentIter == m_torrents.end())
+        return;
+
+    SeenPeer *peer = find(torrentIter->second, ip, endpoint.port());
+    if (peer && peer->isUnreachable)
+    {
+        peer->isUnreachable = false;
+        peer->blockReason.clear();
+    }
+}
+
+void PeerBook::setLocalAddresses(const QSet<QString> &addresses)
+{
+    const QMutexLocker locker {&m_mutex};
+    m_localAddresses.clear();
+    for (const QString &address : addresses)
+        m_localAddresses.insert(normalizedAddress(address));
+
+    for (auto &[torrent, torrentPeers] : m_torrents)
+    {
+        for (SeenPeer &peer : torrentPeers.peers)
+        {
+            const bool isSelf = isLocalAddress(peer.ip);
+            if (isSelf && !peer.isSelf)
+                clearRefusal(torrentPeers, peer);
+            peer.isSelf = isSelf;
+        }
+    }
 }
 
 void PeerBook::removeTorrent(const lt::torrent_handle &torrent)
@@ -163,21 +278,31 @@ void PeerBook::applyIPFilter(const lt::ip_filter &filter)
     {
         for (SeenPeer &peer : torrentPeers.peers)
         {
+            if (peer.isSelf)
+                continue;
+
             lt::error_code ec;
             const lt::address address = lt::make_address(peer.ip.toStdString(), ec);
             if (ec)
                 continue;
 
             const bool isFiltered = (filter.access(address) & lt::ip_filter::blocked);
-            if (isFiltered && !peer.isBlocked)
+            if (isFiltered)
             {
-                setBlocked(torrentPeers, peer, true);
-                peer.isBlockedByIPFilter = true;
-                peer.blockReason = m_ipFilterReason;
+                if (!peer.isBlockedByIPFilter)
+                {
+                    setBlocked(torrentPeers, peer, true);
+                    peer.isBlockedByIPFilter = true;
+                    peer.isUnreachable = false;
+                    peer.blockReason = m_ipFilterReason;
+                }
             }
-            else if (!isFiltered && peer.isBlockedByIPFilter)
+            else if (peer.isBlocked || peer.isUnreachable)
             {
-                setBlocked(torrentPeers, peer, false);
+                // The new filter lets it through, so earlier refusals for other reasons
+                // (settings, no route) are forgotten as well: libtorrent tries the peer
+                // afresh and reports it again if it still fails
+                clearRefusal(torrentPeers, peer);
             }
         }
     }

@@ -604,6 +604,9 @@ namespace BitTorrent
         void handlePeerBlockedAlert(const lt::peer_blocked_alert *alert);
         void handlePeerBanAlert(const lt::peer_ban_alert *alert);
         void pruneSeenPeers();
+        void updatePeerBookLocalAddresses();
+        void handlePeerConnectAlert(const lt::peer_connect_alert *alert);
+        void handlePeerDisconnectedAlert(const lt::peer_disconnected_alert *alert);
         void handleUrlSeedAlert(const lt::url_seed_alert *alert);
         void handleListenSucceededAlert(const lt::listen_succeeded_alert *alert);
         void handleListenFailedAlert(const lt::listen_failed_alert *alert);

@@ -20,6 +20,7 @@
 #include <QHash>
 #include <QList>
 #include <QMutex>
+#include <QSet>
 #include <QString>
 
 #include "seenpeer.h"
@@ -39,11 +40,22 @@ namespace BitTorrent
 
         void addPeer(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint
             , lt::peer_source_flags_t sources, bool isFiltered);
-        void markBlocked(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint, const QString &reason);
+        // libtorrent refused the peer (peer_blocked_alert). `isUnreachable` is for refusals that
+        // only mean this machine cannot reach the address, not counted as blocked.
+        void markRefused(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint
+            , const QString &reason, bool isUnreachable);
+        // Outgoing connection results: a failure before the connection was set up
+        // marks the peer unreachable with the error, a success clears that again
+        void markConnectFailed(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint, const QString &reason);
+        void markConnected(const lt::torrent_handle &torrent, const lt::tcp::endpoint &endpoint);
         void removeTorrent(const lt::torrent_handle &torrent);
 
-        // Re-checks every peer against a new IP filter: refused peers it now allows
-        // become plain known peers again, and the other way round
+        // This machine's own addresses (interfaces and external IPs); peers with one of
+        // them are shown as this machine instead of blocked or unreachable
+        void setLocalAddresses(const QSet<QString> &addresses);
+
+        // Re-checks every peer against a new IP filter: peers it refuses become blocked,
+        // all others lose any earlier refusal (filter, settings or unreachable)
         void applyIPFilter(const lt::ip_filter &filter);
         // Drops peers nobody reported since `cutoff`, and torrents that are gone
         void prune(const QDateTime &cutoff);
@@ -59,10 +71,14 @@ namespace BitTorrent
         };
 
         SeenPeer *findOrInsert(TorrentPeers &torrentPeers, const QString &ip, quint16 port, const QDateTime &now);
+        SeenPeer *find(TorrentPeers &torrentPeers, const QString &ip, quint16 port);
+        bool isLocalAddress(const QString &ip) const;
+        static void clearRefusal(TorrentPeers &torrentPeers, SeenPeer &peer);
         static void setBlocked(TorrentPeers &torrentPeers, SeenPeer &peer, bool blocked);
 
         const QString m_ipFilterReason;
         mutable QMutex m_mutex;
+        QSet<QString> m_localAddresses;  // normalized, without IPv6 scope
         // torrent_handle orders by owner, so entries stay findable after the torrent is gone
         std::map<lt::torrent_handle, TorrentPeers> m_torrents;
     };

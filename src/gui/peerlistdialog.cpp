@@ -55,7 +55,9 @@ namespace
     {
         Connected,
         NotConnected,
-        Blocked
+        Blocked,
+        Unreachable,
+        Self
     };
 
     const int DEFAULT_SEEN_WITHIN_HOURS = 7 * 24;
@@ -304,7 +306,19 @@ void PeerListDialog::refresh()
             m_table->setItem(row, COL_LAST_SEEN, textItem(timeString(peer.lastSeen)));
             m_table->setItem(row, COL_HITS, numberItem(peer.hits));
 
-            if (peer.isBlocked)
+            if (peer.isSelf)
+            {
+                // libtorrent heard about this machine itself (LSD, a tracker echoing it back)
+                m_table->setItem(row, COL_STATUS, textItem(tr("This machine")));
+                m_table->setItem(row, COL_DETAILS, textItem(tr("own address")));
+                for (int col = 0; col < COL_COUNT; ++col)
+                {
+                    if (QTableWidgetItem *item = m_table->item(row, col))
+                        item->setForeground(blockedColor);
+                }
+                setFilterData(peer.ip, PeerState::Self, peer.lastSeen);
+            }
+            else if (peer.isBlocked)
             {
                 m_table->setItem(row, COL_STATUS, textItem(tr("Blocked")));
                 m_table->setItem(row, COL_DETAILS, textItem(peer.blockReason));
@@ -319,6 +333,13 @@ void PeerListDialog::refresh()
             {
                 fillConnected(*connectedPeer);
                 setFilterData(peer.ip, PeerState::Connected, peer.lastSeen);
+            }
+            else if (peer.isUnreachable)
+            {
+                // Not refused: this machine has no way to reach the address
+                m_table->setItem(row, COL_STATUS, textItem(tr("Unreachable")));
+                m_table->setItem(row, COL_DETAILS, textItem(peer.blockReason));
+                setFilterData(peer.ip, PeerState::Unreachable, peer.lastSeen);
             }
             else
             {
@@ -361,6 +382,8 @@ void PeerListDialog::applyFilter()
     int connectedCount = 0;
     int notConnectedCount = 0;
     int blockedCount = 0;
+    int unreachableCount = 0;
+    int selfCount = 0;
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         const QTableWidgetItem *ipItem = m_table->item(row, COL_IP);
@@ -396,12 +419,23 @@ void PeerListDialog::applyFilter()
         case PeerState::Blocked:
             ++blockedCount;
             break;
+        case PeerState::Unreachable:
+            ++unreachableCount;
+            break;
+        case PeerState::Self:
+            ++selfCount;
+            break;
         }
     }
 
-    const int shownCount = connectedCount + notConnectedCount + blockedCount;
-    m_summary->setText(tr("%1 of %2 peers shown: %3 connected, %4 not connected, %5 blocked. These are all peers libtorrent was told about (tracker, DHT, PeX, LSD); each is kept for 7 days after it was last reported.")
-        .arg(shownCount).arg(m_table->rowCount()).arg(connectedCount).arg(notConnectedCount).arg(blockedCount));
+    const int shownCount = connectedCount + notConnectedCount + blockedCount + unreachableCount + selfCount;
+    QString summary = tr("%1 of %2 peers shown: %3 connected, %4 not connected (not tried yet), %5 blocked, %6 unreachable (connecting failed)")
+        .arg(shownCount).arg(m_table->rowCount()).arg(connectedCount).arg(notConnectedCount).arg(blockedCount).arg(unreachableCount);
+    if (selfCount > 0)
+        summary += tr(", %1 this machine").arg(selfCount);
+    summary += u". "_s + tr("These are all peers libtorrent was told about (tracker, DHT, PeX, LSD); each is kept for 7 days after it was last reported.");
+    m_summary->setWordWrap(true);
+    m_summary->setText(summary);
 }
 
 QList<int> PeerListDialog::visibleRows() const
