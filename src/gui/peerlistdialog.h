@@ -12,6 +12,10 @@
 #include <QDialog>
 #include <QPointer>
 
+#include "base/settingvalue.h"
+
+class QCheckBox;
+class QComboBox;
 class QLabel;
 class QTableWidget;
 
@@ -20,8 +24,8 @@ namespace BitTorrent
     class Torrent;
 }
 
-// "Get peer list": every peer of one torrent in one table -
-// the ones we are connected to plus the ones the IP filter refused.
+// "Get peer list": every peer of one torrent in one table - all peers libtorrent
+// was told about (tracker, DHT, PeX, LSD), connected, not connected or refused.
 class PeerListDialog final : public QDialog
 {
     Q_OBJECT
@@ -32,9 +36,20 @@ public:
 
 private:
     void refresh();
+    // Hides the rows the IPv4/IPv6 boxes and the "seen in the last" choice leave out
+    void applyFilter();
+    QList<int> visibleRows() const;
     void copyAll() const;
+    void copyAddresses() const;
 
     QPointer<const BitTorrent::Torrent> m_torrent;
     QTableWidget *m_table = nullptr;
     QLabel *m_summary = nullptr;
+    QCheckBox *m_showIPv4 = nullptr;
+    QCheckBox *m_showIPv6 = nullptr;
+    QComboBox *m_seenWithin = nullptr;
+
+    SettingValue<bool> m_storeShowIPv4;
+    SettingValue<bool> m_storeShowIPv6;
+    SettingValue<int> m_storeSeenWithinHours;
 };

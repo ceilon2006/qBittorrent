@@ -42,6 +42,11 @@ namespace
     }
 }
 
+NativeSessionExtension::NativeSessionExtension(std::shared_ptr<BitTorrent::PeerBook> peerBook)
+    : m_peerBook {std::move(peerBook)}
+{
+}
+
 bool NativeSessionExtension::isSessionListening() const
 {
     const QReadLocker locker {&m_lock};
@@ -60,7 +65,7 @@ lt::feature_flags_t NativeSessionExtension::implemented_features()
 
 std::shared_ptr<lt::torrent_plugin> NativeSessionExtension::new_torrent(const lt::torrent_handle &torrentHandle, LTClientData clientData)
 {
-    return std::make_shared<NativeTorrentExtension>(torrentHandle, static_cast<ExtensionData *>(clientData));
+    return std::make_shared<NativeTorrentExtension>(torrentHandle, static_cast<ExtensionData *>(clientData), m_peerBook);
 }
 
 void NativeSessionExtension::on_alert(const lt::alert *alert)

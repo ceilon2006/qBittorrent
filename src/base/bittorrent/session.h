@@ -464,7 +464,8 @@ namespace BitTorrent
         virtual Torrent *getTorrent(const TorrentID &id) const = 0;
         virtual Torrent *findTorrent(const InfoHash &infoHash) const = 0;
         virtual QList<Torrent *> torrents() const = 0;
-        // Peers blocked by IP filter etc. for this torrent (kept for a long time)
+        // Every peer libtorrent was told about for this torrent (tracker, DHT, PeX, ...),
+        // allowed or blocked, kept for 7 days after it was last reported
         virtual QList<SeenPeer> seenPeers(const TorrentID &id) const = 0;
         virtual int blockedPeersCount(const TorrentID &id) const = 0;
         virtual qsizetype torrentsCount() const = 0;

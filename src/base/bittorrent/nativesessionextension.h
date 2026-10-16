@@ -28,6 +28,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <libtorrent/extensions.hpp>
 #include <libtorrent/fwd.hpp>
 #include <libtorrent/session_handle.hpp>
@@ -36,9 +38,16 @@
 
 #include "extensiondata.h"
 
+namespace BitTorrent
+{
+    class PeerBook;
+}
+
 class NativeSessionExtension final : public lt::plugin
 {
 public:
+    explicit NativeSessionExtension(std::shared_ptr<BitTorrent::PeerBook> peerBook);
+
     bool isSessionListening() const;
 
 private:
@@ -50,6 +59,7 @@ private:
     void handleSessionStatsAlert(const lt::session_stats_alert *alert);
 
     lt::session_handle m_nativeSession;
+    std::shared_ptr<BitTorrent::PeerBook> m_peerBook;
 
     mutable QReadWriteLock m_lock;
     bool m_isSessionListening = false;

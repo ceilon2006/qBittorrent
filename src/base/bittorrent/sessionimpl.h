@@ -31,10 +31,12 @@
 
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include <libtorrent/fwd.hpp>
+#include <libtorrent/ip_filter.hpp>
 #include <libtorrent/portmap.hpp>
 #include <libtorrent/torrent_handle.hpp>
 
@@ -69,6 +71,11 @@ class FileSearcher;
 class FilterParserThread;
 class FreeDiskSpaceChecker;
 class NativeSessionExtension;
+
+namespace BitTorrent
+{
+    class PeerBook;
+}
 
 struct FileSearchResult;
 
@@ -569,6 +576,7 @@ namespace BitTorrent
         void populateAdditionalTrackers();
         void enableIPFilter();
         void disableIPFilter();
+        void applyIPFilter(const lt::ip_filter &filter);
         void processTorrentShareLimits(TorrentImpl *torrent);
         void populateExcludedFileNamesRegExpList();
         void prepareStartup();
@@ -595,7 +603,6 @@ namespace BitTorrent
         void handlePortmapAlert(const lt::portmap_alert *alert);
         void handlePeerBlockedAlert(const lt::peer_blocked_alert *alert);
         void handlePeerBanAlert(const lt::peer_ban_alert *alert);
-        void recordBlockedPeer(const TorrentID &id, const QString &ip, quint16 port, const QString &reason);
         void pruneSeenPeers();
         void handleUrlSeedAlert(const lt::url_seed_alert *alert);
         void handleListenSucceededAlert(const lt::listen_succeeded_alert *alert);
@@ -821,11 +828,14 @@ namespace BitTorrent
         bool m_refreshEnqueued = false;
         QTimer *m_seedingLimitTimer = nullptr;
         QTimer *m_seenPeersPruneTimer = nullptr;
-        // torrent ID -> (IP -> blocked peer)
-        QHash<TorrentID, QHash<QString, SeenPeer>> m_seenPeers;
+        // Every peer libtorrent was told about, filled from the torrent plugins
+        std::shared_ptr<PeerBook> m_peerBook;
         QTimer *m_resumeDataTimer = nullptr;
         // IP filtering
         QPointer<FilterParserThread> m_filterParser;
+        // Rules of the filter given to libtorrent, to tell a real change from a re-apply
+        lt::ip_filter::filter_tuple_t m_appliedIPFilterRules;
+        bool m_isIPFilterApplied = false;
         QPointer<BandwidthScheduler> m_bwScheduler;
         // Tracker
         QPointer<Tracker> m_tracker;

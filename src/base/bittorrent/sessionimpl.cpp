@@ -105,6 +105,7 @@
 #include "loadtorrentparams.h"
 #include "lttypecast.h"
 #include "nativesessionextension.h"
+#include "peerbook.h"
 #include "portforwarderimpl.h"
 #include "resumedatastorage.h"
 #include "torrentcontentremover.h"
@@ -121,10 +122,8 @@ const Path CATEGORIES_FILE_NAME {u"categories.json"_s};
 const Path ADDITIONAL_TRACKERS_FROM_URL_FILE_NAME {u"additional_trackers_from_url.txt"_s};
 const int MAX_PROCESSING_RESUMEDATA_COUNT = 50;
 const std::chrono::seconds FREEDISKSPACE_CHECK_TIMEOUT = 30s;
-// How long a blocked peer stays in the list after it was last reported
+// How long a peer stays in the peer list after it was last reported
 const qint64 SEEN_PEER_EXPIRY_SECS = 7 * 24 * 60 * 60;  // 7 days
-// Safety cap per torrent so a huge swarm can't eat unlimited memory
-const qsizetype SEEN_PEER_MAX_PER_TORRENT = 50000;
 
 namespace
 {
@@ -587,6 +586,7 @@ SessionImpl::SessionImpl(QObject *parent)
     , m_startPaused {BITTORRENT_SESSION_KEY(u"StartPaused"_s)}
     , m_seedingLimitTimer {new QTimer(this)}
     , m_seenPeersPruneTimer {new QTimer(this)}
+    , m_peerBook {std::make_shared<PeerBook>(tr("IP filter", "this peer was blocked. Reason: IP filter."))}
     , m_resumeDataTimer {new QTimer(this)}
     , m_ioThread {new QThread}
     , m_asyncWorker {new QThreadPool(this)}
@@ -1801,7 +1801,7 @@ void SessionImpl::initializeNativeSession()
     if (isPeXEnabled())
         m_nativeSession->add_extension(&lt::create_ut_pex_plugin);
 
-    auto nativeSessionExtension = std::make_shared<NativeSessionExtension>();
+    auto nativeSessionExtension = std::make_shared<NativeSessionExtension>(m_peerBook);
     m_nativeSession->add_extension(nativeSessionExtension);
     m_nativeSessionExtension = nativeSessionExtension.get();
 }
@@ -5671,7 +5671,7 @@ void SessionImpl::disableIPFilter()
     // applied bans.
     lt::ip_filter filter;
     processBannedIPs(filter);
-    m_nativeSession->set_ip_filter(filter);
+    applyIPFilter(filter);
 }
 
 const SessionStatus &SessionImpl::status() const
@@ -5703,13 +5703,48 @@ void SessionImpl::enqueueRefresh()
     m_refreshEnqueued = true;
 }
 
+void SessionImpl::applyIPFilter(const lt::ip_filter &filter)
+{
+    lt::ip_filter::filter_tuple_t rules = filter.export_filter();
+    const bool isFirstFilter = !m_isIPFilterApplied;
+    const bool isChanged = (rules != m_appliedIPFilterRules);
+
+    m_nativeSession->set_ip_filter(filter);
+    m_appliedIPFilterRules = std::move(rules);
+    m_isIPFilterApplied = true;
+
+    // The first filter is set at startup, before the torrents make their own first announce
+    if (isFirstFilter || !isChanged)
+        return;
+
+    m_peerBook->applyIPFilter(filter);
+
+    // libtorrent forgets peers it refused, so peers the new filter allows are not tried
+    // until the next announce - and a normal reannounce waits for the tracker's min interval
+
+    int count = 0;
+    for (const TorrentImpl *torrent : asConst(m_torrents))
+    {
+        if (torrent->isStopped() || torrent->isQueued())
+            continue;
+
+        const lt::torrent_handle handle = torrent->nativeHandle();
+        handle.force_reannounce(0, -1, lt::torrent_handle::ignore_min_interval);
+        handle.force_dht_announce();
+        ++count;
+    }
+
+    LogMsg(tr("IP filter changed. Cleared the blocked peers list and reannounced running torrents. Torrents: %1")
+        .arg(count));
+}
+
 void SessionImpl::handleIPFilterParsed(const int ruleCount)
 {
     if (m_filterParser)
     {
         lt::ip_filter filter = m_filterParser->IPfilter();
         processBannedIPs(filter);
-        m_nativeSession->set_ip_filter(filter);
+        applyIPFilter(filter);
     }
     LogMsg(tr("Successfully parsed the IP filter file. Number of rules applied: %1").arg(ruleCount));
     emit IPFilterParsed(false, ruleCount);
@@ -5719,7 +5754,7 @@ void SessionImpl::handleIPFilterError()
 {
     lt::ip_filter filter;
     processBannedIPs(filter);
-    m_nativeSession->set_ip_filter(filter);
+    applyIPFilter(filter);
 
     LogMsg(tr("Failed to parse the IP filter file"), Log::WARNING);
     emit IPFilterParsed(true, 0);
@@ -6111,70 +6146,29 @@ void SessionImpl::handlePeerBlockedAlert(const lt::peer_blocked_alert *alert)
         // Incoming connections can be blocked before libtorrent knows which torrent
         // they want; those have no valid handle and only go to the log.
         if (alert->handle.is_valid())
-        {
-            if (const TorrentImpl *torrent = getTorrent(alert->handle))
-                recordBlockedPeer(torrent->id(), ip, alert->endpoint.port(), reason);
-        }
+            m_peerBook->markBlocked(alert->handle, alert->endpoint, reason);
     }
-}
-
-void SessionImpl::recordBlockedPeer(const TorrentID &id, const QString &ip, const quint16 port, const QString &reason)
-{
-    // Counted per IP: the port is often 0 or random for blocked peers
-    const QString &key = ip;
-
-    const QDateTime now = QDateTime::currentDateTimeUtc();
-    QHash<QString, SeenPeer> &peers = m_seenPeers[id];
-    auto iter = peers.find(key);
-    if (iter == peers.end())
-    {
-        if (peers.size() >= SEEN_PEER_MAX_PER_TORRENT)
-            return;
-        iter = peers.insert(key, SeenPeer {.ip = ip, .port = port
-            , .reason = reason, .firstSeen = now, .lastSeen = now, .hits = 0});
-    }
-
-    iter->lastSeen = now;
-    ++iter->hits;
-    if (port != 0)
-        iter->port = port;
-    if (!reason.isEmpty())
-        iter->reason = reason;
 }
 
 void SessionImpl::pruneSeenPeers()
 {
-    const QDateTime cutoff = QDateTime::currentDateTimeUtc().addSecs(-SEEN_PEER_EXPIRY_SECS);
-    for (auto torrentIter = m_seenPeers.begin(); torrentIter != m_seenPeers.end();)
-    {
-        if (!m_torrents.contains(torrentIter.key()))
-        {
-            torrentIter = m_seenPeers.erase(torrentIter);
-            continue;
-        }
-
-        QHash<QString, SeenPeer> &peers = torrentIter.value();
-        Algorithm::removeIf(peers, [&cutoff](const QString &, const SeenPeer &peer) { return peer.lastSeen < cutoff; });
-
-        if (peers.isEmpty())
-            torrentIter = m_seenPeers.erase(torrentIter);
-        else
-            ++torrentIter;
-    }
+    m_peerBook->prune(QDateTime::currentDateTimeUtc().addSecs(-SEEN_PEER_EXPIRY_SECS));
 }
 
 QList<SeenPeer> SessionImpl::seenPeers(const TorrentID &id) const
 {
-    return m_seenPeers.value(id).values();
+    const TorrentImpl *torrent = m_torrents.value(id);
+    if (!torrent)
+        return {};
+    return m_peerBook->peers(torrent->nativeHandle());
 }
 
 int SessionImpl::blockedPeersCount(const TorrentID &id) const
 {
-    const auto iter = m_seenPeers.constFind(id);
-    if (iter == m_seenPeers.cend())
+    const TorrentImpl *torrent = m_torrents.value(id);
+    if (!torrent)
         return 0;
-
-    return static_cast<int>(iter.value().size());
+    return m_peerBook->blockedCount(torrent->nativeHandle());
 }
 
 void SessionImpl::handlePeerBanAlert(const lt::peer_ban_alert *alert)

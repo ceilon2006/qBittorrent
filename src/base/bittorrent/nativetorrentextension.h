@@ -28,21 +28,31 @@
 
 #pragma once
 
+#include <memory>
+
 #include <libtorrent/extensions.hpp>
 #include <libtorrent/torrent_handle.hpp>
 
 #include "extensiondata.h"
 
+namespace BitTorrent
+{
+    class PeerBook;
+}
+
 class NativeTorrentExtension final : public lt::torrent_plugin
 {
 public:
-    NativeTorrentExtension(const lt::torrent_handle &torrentHandle, ExtensionData *data);
+    NativeTorrentExtension(const lt::torrent_handle &torrentHandle, ExtensionData *data
+        , std::shared_ptr<BitTorrent::PeerBook> peerBook);
     ~NativeTorrentExtension();
 
 private:
     void on_state(lt::torrent_status::state_t state) override;
+    void on_add_peer(const lt::tcp::endpoint &endpoint, lt::peer_source_flags_t source, lt::add_peer_flags_t flags) override;
 
     lt::torrent_handle m_torrentHandle;
     lt::torrent_status::state_t m_state = lt::torrent_status::checking_resume_data;
     ExtensionData *m_data = nullptr;
+    std::shared_ptr<BitTorrent::PeerBook> m_peerBook;
 };

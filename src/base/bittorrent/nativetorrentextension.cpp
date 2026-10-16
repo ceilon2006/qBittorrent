@@ -30,9 +30,13 @@
 
 #include <libtorrent/torrent_status.hpp>
 
-NativeTorrentExtension::NativeTorrentExtension(const lt::torrent_handle &torrentHandle, ExtensionData *data)
+#include "peerbook.h"
+
+NativeTorrentExtension::NativeTorrentExtension(const lt::torrent_handle &torrentHandle, ExtensionData *data
+        , std::shared_ptr<BitTorrent::PeerBook> peerBook)
     : m_torrentHandle {torrentHandle}
     , m_data {data}
+    , m_peerBook {std::move(peerBook)}
 {
     // NOTE: `data` may not exist if a torrent is added behind the scenes to download metadata
 
@@ -48,6 +52,8 @@ NativeTorrentExtension::NativeTorrentExtension(const lt::torrent_handle &torrent
 
 NativeTorrentExtension::~NativeTorrentExtension()
 {
+    if (m_peerBook)
+        m_peerBook->removeTorrent(m_torrentHandle);
     delete m_data;
 }
 
@@ -61,4 +67,12 @@ void NativeTorrentExtension::on_state(const lt::torrent_status::state_t state)
     }
 
     m_state = state;
+}
+
+void NativeTorrentExtension::on_add_peer(const lt::tcp::endpoint &endpoint, const lt::peer_source_flags_t source, const lt::add_peer_flags_t flags)
+{
+    // Called on libtorrent's network thread for every peer a tracker, DHT, PeX, ... reports,
+    // also for the ones the IP filter refuses
+    if (m_peerBook)
+        m_peerBook->addPeer(m_torrentHandle, endpoint, source, static_cast<bool>(flags & lt::torrent_plugin::filtered));
 }
